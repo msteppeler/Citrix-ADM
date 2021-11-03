@@ -1,0 +1,256 @@
+---
+name: GW_Protect
+namespace: com.citrix.adc.stylebooks
+version: "1.0"
+display-name: "Protecting Citrix Gateway Logon Site"
+description: "Configuration of WAF and BOT to protect Gateway Login Page. Make sure that a custom bot signature is created before! This stylebook is based on settings of citrix docs article: https://docs.citrix.com/en-us/tech-zone/learn/poc-guides/protect-gateway-waf-bot-aaa.html. Please make sure to bind the new authetication policy to your authentication VServer!"
+schema-version: "1.0"
+
+import-stylebooks:
+-
+  namespace: netscaler.nitro.config
+  prefix: ns
+  version: "13.0"
+
+parameters:
+-
+   name: lb-settings
+   label: "Required LB VServer information"
+   type: object
+   parameters:
+   -
+     name: lb-type
+     label: "Would you like to create a new http LB VServer as a dummy for http callout or use an existing one?"
+     type: string
+     allowed-values: 
+     - New
+     - Existing
+     default: "Existing"
+     required: true
+   -
+     name: lb-name
+     label: "Name of the new or existing LB VServer"
+     type: string
+     required: true
+   - 
+     name: backend-ip
+     label: "IP address for a new backend server"
+     description: "only give an IP address if you choose to create a new LB VServer"
+     type: ipaddress
+     required: false  
+-     
+   name: bot-signature
+   label: "Name of the preconfigured bot signature file"
+   default: "gw_bot_signatures.json"
+   type: string
+   required: true
+-
+   name: auth-pol-settings
+   label: "Required LDAP Authentication Policy settings"
+   type: object
+   parameters:
+   -
+     name: auth-pol
+     label: "Name of the new LDAP authentication policy"
+     default: "Auth_Pol_LDAP_Protect"
+     type: string
+     required: true
+   -
+     name: auth-action
+     label: "Name of the actual bound LDAP Action"
+     default: "Auth_Act_LDAP"
+     type: string
+     required: true
+   
+components:
+-
+   name: PATSET
+   type: ns::policypatset
+   properties:
+     name: str("GW_VPN_Patset")
+   components:
+     -
+       name: PATTERNI1
+       type: ns::policypatset_pattern_binding
+       properties:
+         name: $parent.properties.name
+         String: str("/cgi/login")
+         index: 1
+     -
+       name: PATTERNI2
+       type: ns::policypatset_pattern_binding
+       properties:
+         name: $parent.properties.name
+         String: str("/nf/auth/doAuthentication.do")
+         index: 2
+-
+   name: LBCREATE
+   type: ns::lbvserver
+   condition: $parameters.lb-settings.lb-type == "New"
+   properties:
+     name: $parameters.lb-settings.lb-name
+     ipv46: 0.0.0.0
+     port: 0
+     servicetype: "HTTP"
+   components:
+     -
+      name: SRVCREATE
+      type: ns::server
+      properties:
+        name: str("callout_server")
+        ipaddress: $parameters.lb-settings.backend-ip
+     -
+       name: LBSERVICECREATE
+       type: ns::service
+       properties:
+         name: str("GW_callout_service")
+         servername: str("callout_server")
+         servicetype: "HTTP"
+         port: 80
+     -
+       name: SERVICEBIND
+       type: ns::lbvserver_service_binding
+       properties:
+         name: $parent.properties.name
+         servicename: str("GW_callout_service")
+-
+   name: CALLOUT
+   type: ns::policyhttpcallout
+   properties:
+     name: str("GW_VPN_WAF_Callout")
+     vserver: $parameters.lb-settings.lb-name
+     returntype: str("BOOL")
+     scheme: str("http")
+     httpmethod: str("GET")
+     fullreqexpr: str("HTTP.REQ.FULL_HEADER.BEFORE_STR(\"\\r\\n\\r\\n\")+\"\\r\\nGW_VPN_WAF_Callout:abc\\r\\n\\r\\n\"+HTTP.REQ.BODY(2048)")
+     resultexpr: str("true")
+-
+   name: BOTPROF
+   type: ns::botprofile
+   properties:
+     name: str("gateway_bot_profile")
+     signature: $parameters.bot-signature
+     errorurl: str("/")
+     bot_enable_white_list: "OFF"
+     bot_enable_black_list: "OFF"
+     bot_enable_rate_limit: "ON"
+     devicefingerprint: "OFF"
+     bot_enable_ip_reputation: "ON"
+     trap: "OFF"
+   components:
+     -
+       name: BOTRATE1
+       type: ns::botprofile_ratelimit_binding
+       properties:
+         name: $parent.properties.name
+         bot_ratelimit: "TRUE"
+         bot_rate_limit_type: "URL"
+         bot_rate_limit_enabled: "ON"
+         bot_rate_limit_url: str("/logon/LogonPoint/index.html")
+         rate: 5
+         timeslice: 1000
+         bot_rate_limit_action: [LOG DROP]
+         logmessage: str("RateLimitGateway")
+     -
+       name: BOTRATE2
+       type: ns::botprofile_ratelimit_binding
+       properties:
+         name: $parent.properties.name
+         bot_ratelimit: "TRUE"
+         bot_rate_limit_type: "URL"
+         bot_rate_limit_enabled: "ON"
+         bot_rate_limit_url: str("/logon/LogonPoint/tmindex.html")
+         rate: 5
+         timeslice: 1000
+         bot_rate_limit_action: [LOG DROP]
+         logmessage: str("RateLimitGateway")
+     -
+       name: BOTRATE3
+       type: ns::botprofile_ratelimit_binding
+       properties:
+         name: $parent.properties.name
+         bot_ratelimit: "TRUE"
+         bot_rate_limit_type: "URL"
+         bot_rate_limit_enabled: "ON"
+         bot_rate_limit_url: str("/vpn/index.html")
+         rate: 5
+         timeslice: 1000
+         bot_rate_limit_action: [LOG DROP]
+         logmessage: str("RateLimitGateway")
+     -
+       name: BOTIPREP
+       type: ns::botprofile_ipreputation_binding
+       properties:
+         name: $parent.properties.name
+         bot_ipreputation: "TRUE"
+         category: "IP"
+         bot_iprep_enabled: "ON"
+         bot_iprep_action: [LOG DROP]
+         logmessage: str("IPReputationGateway")
+-
+   name: BOTPOL
+   type: ns::botpolicy
+   properties:
+     name: str("gateway_bot_policy")
+     rule: str("HTTP.REQ.URL.CONTAINS(\"/vpn\")||HTTP.REQ.URL.CONTAINS(\"/logon\")")
+     profilename: str("gateway_bot_profile")
+-
+   name: BOTBINDGLOB
+   type: ns::botglobal_botpolicy_binding
+   properties:
+     policyname: str("gateway_bot_policy")
+     type: str("REQ_DEFAULT")
+     priority: 1
+-
+   name: APPFWPROF
+   type: ns::appfwprofile
+   properties:
+     name: str("gateway_appfw_profile")
+     type: [HTML]
+     logeverypolicyhit: "ON"
+     optimizepartialreqs: "ON"
+     starturlaction: [none]
+     starturlclosure: "OFF"
+     denyurlaction: [none]
+     refererheadercheck: "OFF"
+     csrftagaction: [none]
+     crosssitescriptingaction: [block log stats]
+     crosssitescriptingtransformunsafehtml: "OFF"
+     crosssitescriptingcheckcompleteurls: "OFF"
+     exemptclosureurlsfromsecuritychecks: "ON"
+     sqlinjectionaction: [block log stats]
+     cmdinjectionaction: [none]
+     fieldconsistencyaction: [none]
+     cookieconsistencyaction: [none]
+     cookiehijackingaction: [none]
+     bufferoverflowaction: [log stats]
+     fieldformataction: [none]
+     fileuploadtypesaction: [none]
+-
+   name: APPFWSET
+   type: ns::appfwsettings
+   properties:
+     ceflogging: "ON"
+-
+   name: APPFWPOL
+   type: ns::appfwpolicy
+   properties:
+     name: str("gateway_appfw_policy")
+     rule: str("HTTP.REQ.HEADER(\"GW_VPN_WAF_Callout\").EXISTS")
+     profilename: str("gateway_appfw_profile")
+-
+   name: BINDAPPFWPOL
+   type: ns::lbvserver_appfwpolicy_binding
+   properties:
+     name: $parameters.lb-settings.lb-name
+     policyname: str("gateway_appfw_policy")
+     priority: 100
+     gotopriorityexpression: "END"
+     bindpoint: "REQUEST"
+-
+   name: MODAUTHPOL
+   type: ns::authenticationpolicy
+   properties:
+     name: $parameters.auth-pol-settings.auth-pol
+     rule: str("HTTP.REQ.URL.CONTAINS_ANY(\"GW_VPN_Patset\") && SYS.HTTP_CALLOUT(GW_VPN_WAF_Callout)")
+     action: $parameters.auth-pol-settings.auth-action
