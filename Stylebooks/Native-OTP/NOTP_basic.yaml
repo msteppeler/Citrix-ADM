@@ -1,0 +1,290 @@
+---
+name: NOTP_basic
+namespace: com.citrix.adc.stylebooks
+version: "1.0"
+display-name: "NOTP"
+description: "configuration of basic NOTP settings"
+schema-version: "1.0"
+
+import-stylebooks:
+-
+  namespace: netscaler.nitro.config
+  prefix: ns
+  version: "13.0"
+
+parameters:
+-
+   name: AuthenticationSettings
+   label: "Required LDAP Parameters"
+   type: object
+   parameters:
+   -
+     name: LDAP-IP
+     label: "LDAP Server IP"
+     type: ipaddress
+     required: true
+   -
+     name: BaseDN
+     label: "In which BaseDN should the ADC start for searching Users?"
+     type: string
+     default: "dc=training, dc=local"
+     required: true
+   -
+     name: BindDN
+     label: "Name of service account for authentication (UPN or DN)"
+     type: string
+     default: "administrator@training.local"
+     required: true
+   -
+     name: BindDNPW
+     label: "Password for service account"
+     type: password
+     required: true
+-
+   name: CLIENTSUBNET
+   label: "Access limited to following subnet"
+   type: string
+   default: "192.168.123.0/24"
+   required: true
+-
+   name: CERT
+   label: "Certificate Name for VServer binding."
+   type: string
+   default: "wildcard_New_Lab"
+   required: true
+   
+components:
+-
+   name: VSNOTP
+   type: ns::authenticationvserver
+   properties:
+     name: str("AAAVS_NOTP")
+     ipv46: 0.0.0.0
+     port: 0
+     servicetype: "SSL"
+     authentication: "ON"
+-
+   name: AAAPROFNOTP
+   type: ns::authenticationauthnprofile
+   properties:
+     name: str("Auth_Prof_NOTP")
+     authnvsname: str("AAAVS_NOTP")
+-
+   name: LDAPMGMT
+   type: ns::authenticationldapaction
+   properties:
+     name: str("Auth_Act_LDAP_NOTP_Manage")
+     serverip: $parameters.AuthenticationSettings.LDAP-IP
+     serverport: 636
+     sectype: "SSL"
+     ldapbase: $parameters.AuthenticationSettings.BaseDN
+     ldapbinddn: $parameters.AuthenticationSettings.BindDN
+     ldapbinddnpassword: $parameters.AuthenticationSettings.BindDNPW
+     ldaploginname: "sAMAccountName"
+     groupattrname: "memberOf"
+     subattributename: "cn"
+     authentication: "DISABLED"
+     otpsecret: "userParameters"
+-
+   name: LDAPAUTH
+   type: ns::authenticationldapaction
+   properties:
+     name: str("Auth_Act_LDAP_NOTP_Authenticate")
+     serverip: $parameters.AuthenticationSettings.LDAP-IP
+     serverport: 636
+     sectype: "SSL"
+     ldapbase: $parameters.AuthenticationSettings.BaseDN
+     ldapbinddn: $parameters.AuthenticationSettings.BindDN
+     ldapbinddnpassword: $parameters.AuthenticationSettings.BindDNPW
+     ldaploginname: "sAMAccountName"
+     groupattrname: "memberOf"
+     subattributename: "cn"
+     authentication: "ENABLED"
+-
+   name: LDAPSEARCH
+   type: ns::authenticationldapaction
+   properties:
+     name: str("Auth_Act_LDAP_NOTP_Search")
+     serverip: $parameters.AuthenticationSettings.LDAP-IP
+     serverport: 636
+     sectype: "SSL"
+     ldapbase: $parameters.AuthenticationSettings.BaseDN
+     ldapbinddn: $parameters.AuthenticationSettings.BindDN
+     ldapbinddnpassword: $parameters.AuthenticationSettings.BindDNPW
+     ldaploginname: "sAMAccountName"
+     groupattrname: "memberOf"
+     subattributename: "cn"
+     authentication: "DISABLED" 
+     searchfilter: str("userParameters>=#@") 
+     otpsecret: "userParameters"     
+-
+   name: AUTHPOLMGMT
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_LDAP_NOTP_Manage")
+     rule: str("TRUE")
+     action: "Auth_Act_LDAP_NOTP_Manage"
+-
+   name: AUTHPOLAUTH
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_LDAP_NOTP_Authenticate")
+     rule: str("TRUE")
+     action: "Auth_Act_LDAP_NOTP_Authenticate"
+-
+   name: AUTHPOLSEARCH
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_NOTP_search")
+     rule: str("TRUE")
+     action: "Auth_Act_LDAP_NOTP_Search"
+-
+   name: AUTHPOLNOAUTH
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_NoAuth")
+     rule: str("TRUE")
+     action: "NO_AUTHN"
+-
+   name: AUTHPOLNOTPAUTH
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_NOTP_Auth")
+     rule: str("TRUE")
+     action: "NO_AUTHN"
+-
+   name: AUTHPOLNOTPMGMT
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_NOTP_Manage")
+     rule: str('HTTP.REQ.COOKIE.VALUE(\"NSC_TASS\").EQ(\"manageotp\") && CLIENT.IP.SRC.IN_SUBNET(') + $parameters.CLIENTSUBNET + str(')')
+     action: "NO_AUTHN"
+-
+   name: LGSCHSINGLE
+   type: ns::authenticationloginschema
+   properties:
+     name: str("logschem_Auth_Pol_NOTP_Manage_single")
+     authenticationschema: str("/nsconfig/loginschema/LoginSchema/SingleAuthManageOTP.xml")
+-
+   name: LGSCHDUAL
+   type: ns::authenticationloginschema
+   properties:
+     name: str("logschem_NOTP_dual")
+     authenticationschema: str("/nsconfig/loginschema/LoginSchema/DualAuth.xml")
+     passwordcredentialindex: 1
+-
+   name: POLLABMGMTAUTH
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Pol_Mgmt_Or_Auth")
+     loginschema: LSCHEMA_INT
+-
+   name: POLLABNOTPLDAP
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_NOTP_LDAP")
+     loginschema: str("logschem_Auth_Pol_NOTP_Manage_single")
+-
+   name: POLLABNOTPMGMT
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_NOTP_Manage")
+     loginschema: LSCHEMA_INT
+-
+   name: POLLABNOTPDUAL
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_NOTP_Auth_Dual")
+     loginschema: str("logschem_NOTP_dual")
+-
+   name: POLLABNOTPSEARCH
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_NOTP_Search")
+     loginschema: LSCHEMA_INT
+-
+   name: BINDLABMGMT
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Pol_Mgmt_Or_Auth")
+     policyname: str("Auth_Pol_NOTP_Manage")
+     priority: 100
+     gotoPriorityExpression: "NEXT"
+     nextfactor: "Auth_Lab_NOTP_LDAP"
+-
+   name: BINDLABAUTH
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Pol_Mgmt_Or_Auth")
+     policyname: str("Auth_Pol_NOTP_Auth")
+     priority: 110
+     gotoPriorityExpression: "NEXT"
+     nextfactor: "Auth_Lab_NOTP_Auth_Dual"
+-
+   name: BINDLABLDAP
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_NOTP_LDAP")
+     policyname: str("Auth_Pol_LDAP_NOTP_Authenticate")
+     priority: 100
+     gotoPriorityExpression: "NEXT"
+     nextfactor: "Auth_Lab_NOTP_Manage"
+-
+   name: BINDLABNOTPMGMT
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_NOTP_Manage")
+     policyname: str("Auth_Pol_LDAP_NOTP_Manage")
+     priority: 100
+     gotoPriorityExpression: "END"
+-
+   name: BINDLABNOTPDUAL
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_NOTP_Auth_Dual")
+     policyname: str("Auth_Pol_LDAP_NOTP_Authenticate")
+     priority: 100
+     gotoPriorityExpression: "NEXT"
+     nextfactor: "Auth_Lab_NOTP_Search"
+-
+   name: BINDLABNOTPSEARCH
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_NOTP_Search")
+     policyname: str("Auth_Pol_NOTP_search")
+     priority: 100
+     gotoPriorityExpression: "END"
+-
+   name: AAABIND
+   type: ns::authenticationvserver_authenticationpolicy_binding
+   properties:
+     name: str("AAAVS_NOTP")
+     policy: str("Auth_Pol_NoAuth")
+     priority: 100
+     nextfactor: str("Auth_Pol_Mgmt_Or_Auth")
+     gotoPriorityExpression: "NEXT"
+-
+   name: AAAPARAMETER
+   type: ns::aaaotpparameter
+   properties:
+      maxotpdevices: 2
+-
+   name: VPNTRACT
+   type: ns::vpntrafficaction
+   properties: 
+     name: str("traffprof_notp")
+     qual: str("HTTP")
+     passwdexpression: str("AAA.USER.ATTRIBUTE(1)")
+-
+   name: VPNTRPOL
+   type: ns::vpntrafficpolicy
+   properties:
+     name: str("traffpol_notp")
+     rule: str("TRUE")
+     action: str("traffprof_notp")
+-
+   name: CERTBIND
+   type: ns::sslvserver_sslcertkey_binding
+   properties:
+     certkeyname: $parameters.CERT
+     vservername: str("AAAVS_NOTP")     
