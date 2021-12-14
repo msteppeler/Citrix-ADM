@@ -1,6 +1,6 @@
 <b>About this Stylebook</b>
 
-Resetting user passwords is one of the most and most boring tasks for helpdesk. This stylebook helps configuring SelfService Password Reset (SSPR) on Citrix ADC. Users can register to this service and change forgotten passwords by their own. To register they need to have access to their company mail, because register site is protected with email-OTP.
+Resetting user passwords is one of the most often and most boring tasks for helpdesk. This stylebook helps configuring SelfService Password Reset (SSPR) on Citrix ADC. Users can register to this service and change forgotten passwords by their own. To register they need to have access to their company mail, because register site is protected with email-OTP.
 
 <b>Prerequisites</b>
 
