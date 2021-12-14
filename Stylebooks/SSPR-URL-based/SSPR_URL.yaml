@@ -1,0 +1,348 @@
+---
+name: SSPR_URL
+namespace: com.citrix.adc.stylebooks
+version: "1.0"
+display-name: "SSPR - URL based registration"
+description: "This configures Selfservice Password Reset (SSPR) Feature of Citrix ADC. The regiter site is public available and protected with email OTP. This mail is send to the customers company mail address."
+schema-version: "1.0"
+
+import-stylebooks:
+-
+  namespace: netscaler.nitro.config
+  prefix: ns
+  version: "13.0"
+
+parameters:
+-
+   name: AuthenticationSettings
+   label: "Required LDAP Parameters"
+   type: object
+   parameters:
+   -
+     name: LDAP-IP
+     label: "LDAP Server IP"
+     type: ipaddress
+     required: true
+   -
+     name: BaseDN
+     label: "In which BaseDN should the ADC start for searching Users?"
+     type: string
+     default: "dc=training, dc=local"
+     required: true
+   -
+     name: BindDN
+     label: "Name of service account for authentication (UPN or DN)"
+     type: string
+     default: "administrator@training.local"
+     required: true
+   -
+     name: BindDNPW
+     label: "Password for service account"
+     type: password
+     required: true
+   -
+     name: Attrib
+     label: "In which LDAP attribute shall the SSPR information be stored?"
+     type: string
+     default: "userParameters"
+     required: true 
+-
+   name: MailSettings
+   label: "Required mail settings"
+   type: object
+   parameters:
+   - 
+     name: SenderMail
+     label: "Mailaddress of service account which sends eOTP mail"
+     description: "Name of service account which sends OTP mail"
+     default: "mailsvc@training.local"
+     type: string
+     required: TRUE
+   -
+     name: SenderPW
+     label: "Password"
+     description: "Password of servive account which sends OTP mail"
+     type: password
+     required: TRUE
+   -
+     name: MailIP
+     label: "IP-address or FQDN of mail server"
+     type: string
+     required: TRUE
+   -
+     name: MailProtocol
+     label: "Which Protocol to use (SMTP/SMTPS)"
+     allowed-values:
+       - smtp
+       - smtps
+     type: string  
+     default: "smtp"
+     required: TRUE
+   -
+     name: MailPort
+     label: "Which Port to use (25/587/465)"
+     allowed-values:
+       - "25"
+       - "587"
+       - "465"
+     type: string  
+     default: str("25")
+     required: TRUE
+-
+    name: KBAschem
+    label: "Name of the pre-defined KBA registration schema"
+    default: "logschem_SSPR_Register"
+    type: string
+    required: TRUE
+-
+   name: CERT
+   label: "Certificate Name for VServer binding."
+   type: string
+   default: "wildcard_New_Lab"
+   required: true
+   
+components:
+-
+   name: LDAPAUTH
+   type: ns::authenticationldapaction
+   properties:
+     name: str("Auth_Act_SSPR_LDAP")
+     serverip: $parameters.AuthenticationSettings.LDAP-IP
+     serverport: 636
+     sectype: "SSL"
+     ldapbase: $parameters.AuthenticationSettings.BaseDN
+     ldapbinddn: $parameters.AuthenticationSettings.BindDN
+     ldapbinddnpassword: $parameters.AuthenticationSettings.BindDNPW
+     ldaploginname: "sAMAccountName"
+     groupattrname: "memberOf"
+     subattributename: "cn"
+     authentication: "ENABLED"
+     kbattribute: $parameters.AuthenticationSettings.Attrib
+     alternateemailattr: $parameters.AuthenticationSettings.Attrib
+-
+   name: LDAPNOAUTH
+   type: ns::authenticationldapaction
+   properties:
+     name: str("Auth_Act_SSPR_LDAP_Reset")
+     serverip: $parameters.AuthenticationSettings.LDAP-IP
+     serverport: 636
+     sectype: "SSL"
+     ldapbase: $parameters.AuthenticationSettings.BaseDN
+     ldapbinddn: $parameters.AuthenticationSettings.BindDN
+     ldapbinddnpassword: $parameters.AuthenticationSettings.BindDNPW
+     ldaploginname: "sAMAccountName"
+     groupattrname: "memberOf"
+     subattributename: "cn"
+     authentication: "DISABLED"
+     kbattribute: $parameters.AuthenticationSettings.Attrib
+     alternateemailattr: $parameters.AuthenticationSettings.Attrib
+-    
+   name: MAILREG
+   type: ns::authenticationemailaction
+   properties:
+     name: str("Auth_Act_email_register")
+     username: $parameters.MailSettings.SenderMail
+     password: $parameters.MailSettings.SenderPW
+     serverurl: $parameters.MailSettings.MailProtocol + str("://") + $parameters.MailSettings.MailIP + str(":") + $parameters.MailSettings.MailPort
+     content: str("Your OTP is $code")
+     type: SMTP
+-    
+   name: MAILRES
+   type: ns::authenticationemailaction
+   properties:
+     name: str("Auth_Act_email_reset")
+     username: $parameters.MailSettings.SenderMail
+     password: $parameters.MailSettings.SenderPW
+     serverurl: $parameters.MailSettings.MailProtocol + str("://") + $parameters.MailSettings.MailIP + str(":") + $parameters.MailSettings.MailPort
+     content: str("Your OTP is $code")
+     type: SMTP
+     emailaddress: str('aaa.user.attribute(\"alternate_mail\")')
+-
+   name: MAILPOLREG
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_SSPR_email_Register")
+     rule: str("TRUE")
+     action: str("Auth_Act_email_register")
+-
+   name: MAILPOLRES
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_SSPR_email_Reset")
+     rule: str("TRUE")
+     action: str("Auth_Act_email_reset")
+-
+   name: AUTHPOLLDAPLOGIN
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_SSPR_LDAP_Login")
+     rule: str("TRUE")
+     action: "Auth_Act_SSPR_LDAP"
+-
+   name: AUTHPOLLDAPREG
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_SSPR_LDAP_Register")
+     rule: str("HTTP.REQ.COOKIE.VALUE(\"NSC_TASS\").CONTAINS(\"register\")")
+     action: "Auth_Act_SSPR_LDAP"
+-
+   name: AUTHPOLLDAVER
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_SSPR_LDAP_Verify")
+     rule: str("aaa.LOGIN.VALUE(\"passwdreset\").EQ(\"1\")")
+     action: "Auth_Act_SSPR_LDAP_Reset"
+-
+   name: AUTHPOLLDAPRES
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_SSPR_LDAP_Reset")
+     rule: str("TRUE")
+     action: "Auth_Act_SSPR_LDAP_Reset"
+-
+   name: LGSCHRESET
+   type: ns::authenticationloginschema
+   properties:
+     name: str("logschem_SSPR_Reset")
+     authenticationschema: str("/nsconfig/loginschema/LoginSchema/SingleAuthPasswordResetRem.xml")
+-
+   name: LGSCHPOLRES
+   type: ns::authenticationloginschemapolicy
+   properties:
+     name: str("logschem_Pol_SSPR_Reset")
+     rule: str("TRUE")
+     action: str("logschem_SSPR_Reset")
+-
+   name: POLLABKBA
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_SSPR")
+     loginschema: LSCHEMA_INT
+-
+   name: POLLABMAILRES
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_SSPR_email_Reset")
+     loginschema: LSCHEMA_INT
+-
+   name: POLLABLDAPRES
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_SSPR_LDAP_Reset")
+     loginschema: LSCHEMA_INT
+-
+   name: POLLABMAILREG
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_SSPR_email_Register")
+     loginschema: LSCHEMA_INT
+-
+   name: POLLABLDAPREG
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_SSPR_LDAP_Register")
+     loginschema: $parameters.KBAschem
+-
+   name: BINDLABKBA
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_SSPR")
+     policyname: str("Auth_Pol_SSPR_LDAP_Verify")
+     priority: 100
+     gotoPriorityExpression: "NEXT"
+     nextfactor: "Auth_Lab_SSPR_email_Reset"
+-
+   name: BINDLABMAILRES
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_SSPR_email_Reset")
+     policyname: str("Auth_Pol_SSPR_email_Reset")
+     priority: 100
+     gotoPriorityExpression: "NEXT"
+     nextfactor: "Auth_Lab_SSPR_LDAP_Reset"
+-
+   name: BINDLABLDAPRES
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_SSPR_LDAP_Reset")
+     policyname: str("Auth_Pol_SSPR_LDAP_Reset")
+     priority: 100
+     gotoPriorityExpression: "END"
+-
+   name: BINDLABMAILREG
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_SSPR_email_Register")
+     policyname: str("Auth_Pol_SSPR_email_Register")
+     priority: 100
+     gotoPriorityExpression: "NEXT"
+     nextfactor: "Auth_Lab_SSPR_LDAP_Register"     
+-
+   name: BINDLABLDAPREG
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_SSPR_LDAP_Register")
+     policyname: str("Auth_Pol_SSPR_LDAP_Register")
+     priority: 100
+     gotoPriorityExpression: "END"
+-
+   name: VSSSPR
+   type: ns::authenticationvserver
+   properties:
+     name: str("AAAVS_SSPR")
+     ipv46: 0.0.0.0
+     port: 0
+     servicetype: "SSL"
+     authentication: "ON"
+   components:
+    -
+     name: CERTBIND
+     type: ns::sslvserver_sslcertkey_binding
+     properties:
+       certkeyname: $parameters.CERT
+       vservername: str("AAAVS_SSPR")
+    -
+     name: AAABINDRES
+     type: ns::authenticationvserver_authenticationpolicy_binding
+     properties:
+       name: str("AAAVS_SSPR")
+       policy: str("Auth_Pol_SSPR_LDAP_Verify")
+       priority: 100
+       nextfactor: str("Auth_Lab_SSPR")
+       gotoPriorityExpression: "NEXT"     
+    -
+     name: AAABINDREG
+     type: ns::authenticationvserver_authenticationpolicy_binding
+     properties:
+       name: str("AAAVS_SSPR")
+       policy: str("Auth_Pol_SSPR_LDAP_Register")
+       priority: 110
+       nextfactor: str("Auth_Lab_SSPR_email_Register")
+       gotoPriorityExpression: "NEXT" 
+    -
+     name: AAABINDLOGIN
+     type: ns::authenticationvserver_authenticationpolicy_binding
+     properties:
+       name: str("AAAVS_SSPR")
+       policy: str("Auth_Pol_SSPR_LDAP_Login")
+       priority: 120
+       gotoPriorityExpression: "END" 
+    -
+     name: AAALGOSCHEMBIND
+     type: ns::authenticationvserver_authenticationloginschemapolicy_binding
+     properties:
+       name: str("AAAVS_SSPR")
+       policy: str("logschem_Pol_SSPR_Reset")
+       priority: 100
+-
+   name: AAAPROFSSPR
+   type: ns::authenticationauthnprofile
+   properties:
+     name: str("Auth_Prof_SSPR")
+     authnvsname: str("AAAVS_SSPR")
+-
+   name: VPNGLOBBIND
+   type: ns::vpnglobal_sslcertkey_binding
+   properties:
+     userdataencryptionkey: $parameters.CERT
+    
