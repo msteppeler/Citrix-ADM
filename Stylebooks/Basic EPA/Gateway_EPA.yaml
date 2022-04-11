@@ -1,0 +1,147 @@
+---
+name: GW_common_EPA
+namespace: com.citrix.adc.stylebooks
+version: "1.0"
+display-name: "Gateway EPA"
+description: "Configuration of common EPA settings. You only have to add created EPA policy to your authentication VServer. In case you select certificate verificytion, please bind CA certificate to your gateway vserver and in CA check within gateway and AAA Vserver as well."
+schema-version: "1.0"
+
+import-stylebooks:
+-
+  namespace: netscaler.nitro.config
+  prefix: ns
+  version: "13.1"
+
+parameters:
+-
+   name: mac
+   label: "Do you want to allow only specific MAC addresses? Please note either test mac OR certificate check!"
+   type: object
+   parameters:
+   -
+     name: mac-address
+     label: "Please enter MAC address in format: 1A-2B-3C-4D-5E-6F"
+     type: string[]
+     required: false
+-
+   name: av
+   label: "Would you like to scan for running AV Software?"
+   description: "This scan scans for generic AV Software"
+   type: boolean
+   required: false
+-
+   name: firewall
+   label: "Would you like to scan for running Firewall Software?"
+   description: "This scan scans for generic Firewall Software"
+   type: boolean
+   required: false
+-
+   name: OS
+   label: "Do you want to allow only specific Client Operating Systems?"
+   type: object
+   parameters:
+   -
+     name: win10
+     label: "Windows 10"
+     type: boolean
+     required: false
+   -
+     name: win81
+     label: "Windows 8.1"
+     type: boolean
+     required: false
+   -
+     name: win8
+     label: "Windows 8"
+     type: boolean
+     required: false 
+   -
+     name: win7
+     label: "Windows 7"
+     type: boolean
+     required: false
+-
+   name: cert
+   label: "Do you want to activate device certificate verification within EPA? Please be sure to bind CA Certificate to VPN Vserver and also in device cert section."
+   type: boolean
+   required: false
+ 
+   
+substitutions:
+   rule-mac: if-then-else(exists($parameters.mac), str("sys.client_expr(\"mac-addr_0_PolExp_MAC\")"))
+   rule-av: if-then-else($parameters.av, str("PolExp_AV"))
+   rule-fw: if-then-else($parameters.firewall, str("PolExp_FW"))
+   rule-os-10: if-then-else($parameters.OS.win10, str("WIN-10"))
+   rule-os-81: if-then-else($parameters.OS.win81, str("WIN-8.1"))
+   rule-os-8: if-then-else($parameters.OS.win8, str("WIN-8"))
+   rule-os-7: if-then-else($parameters.OS.win7, str("WIN-7"))
+   rule-os: if-then-else($parameters.OS, str("PolExp_OS"))
+   rule-cert: if-then-else($parameters.cert, str("PolExp_CERT"))
+   not_empty(mystring): mystring != ''
+   expression-list: [$substitutions.rule-cert, $substitutions.rule-mac, $substitutions.rule-av, $substitutions.rule-fw, $substitutions.rule-os]
+   expression-list-os: [$substitutions.rule-os-10, $substitutions.rule-os-81, $substitutions.rule-os-8, $substitutions.rule-os-7]
+   
+components:
+-
+   name: MACPATSET
+   type: ns::policypatset
+   condition: $parameters.mac
+   properties:
+     name: str("PatSet_MAC")
+   components:
+     -
+       name: MACPATBIND
+       type: ns::policypatset_pattern_binding
+       repeat: $parameters.mac.mac-address
+       repeat-item: clientmac
+       properties:
+         name: $parent.properties.name
+         String: $clientmac
+-
+   name: MACEXP
+   type: ns::policyexpression
+   condition: $parameters.mac
+   properties:
+     name: str("PolExp_MAC")
+     value: str("AAA.LOGIN.CLIENT_MAC_ADDR.EQUALS_ANY(\"PatSet_MAC\")")
+-
+   name: AVEXP
+   type: ns::policyexpression
+   condition: $parameters.av
+   properties:
+     name: str("PolExp_AV")
+     value: str("sys.client_expr(\"app_0_ANTIVIR_0_0_RTP_==_TRUE\")")
+-
+   name: FWEXP
+   type: ns::policyexpression
+   condition: $parameters.firewall
+   properties:
+     name: str("PolExp_FW")
+     value: str("sys.client_expr(\"app_0_FIREWALL_0_0_ENABLED_==_TRUE\")")     
+-
+   name: OSEXP
+   type: ns::policyexpression
+   condition: $parameters.OS
+   properties:
+     name: str("PolExp_OS")
+     value: str('sys.client_expr(\"sys_0_WIN-OS_NAME_anyof_') + join(filter($substitutions.not_empty, $substitutions.expression-list-os), ',') + str('\")')
+-
+   name: CERTEXP
+   type: ns::policyexpression
+   condition: $parameters.cert
+   properties:
+     name: str("PolExp_CERT")
+     value: str("sys.client_expr(\"device-cert_0_0\")")
+-                
+   name: EPAACT
+   type: ns::authenticationepaaction
+   properties:
+     name: str("EPA_Act")
+     csecexpr: join(filter($substitutions.not_empty, $substitutions.expression-list), ' && ')
+-
+   name: EPAPOL
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_EPA")
+     rule: TRUE
+     action: str("EPA_Act")
