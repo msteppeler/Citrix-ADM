@@ -1,0 +1,133 @@
+---
+name: ADC_Login_MFA
+namespace: com.citrix.adc.stylebooks
+version: "1.0"
+display-name: "ADC-Login with MFA"
+description: "This stylebook protects ADC Login with MFA. I assume that there is already a MFA solution configured for AAA or Gateway."
+schema-version: "1.0"
+
+import-stylebooks:
+-
+  namespace: netscaler.nitro.config
+  prefix: ns
+  version: "12.1"
+
+parameters:
+-
+   name: AuthenticationSettings
+   label: "Required LDAP Parameters"
+   type: object
+   parameters:
+   -
+     name: LDAP-IP
+     label: "LDAP Server IP"
+     type: ipaddress
+     required: true
+   -
+     name: BaseDN
+     label: "In which BaseDN should the ADC start for searching Users?"
+     type: string
+     default: "dc=training,dc=local"
+     required: true
+   -
+     name: BindDN
+     label: "Name of service account for authentication (UPN or DN)"
+     type: string
+     default: "administrator@training.local"
+     required: true
+   -
+     name: BindDNPW
+     label: "Password for service account"
+     type: password
+     required: true
+   -
+     name: GROUPNAME
+     label: "Name of the LDAP group which is allowed to access Citrix ADC"
+     type: string
+     required: true
+     default: ADC_Admin
+   -
+     name: GROUPDN
+     label: "DN of the group"
+     type: string
+     required: true
+     default: CN=ADC_Admin,OU=Citrix,DC=training,DC=local
+-
+   name: otp
+   label: "Required OTP information"
+   type: object
+   parameters:       
+     -
+      name: otp_policy
+      label: "Name of the OTP Policy"
+      type: string
+      required: true
+      default: Auth_Pol_RADIUS_OpentOTP
+      
+components:
+-
+   name: SYSGRP
+   type: ns::systemgroup
+   properties:
+     groupname: $parameters.AuthenticationSettings.GROUPNAME
+   components:
+     -
+        name: SYSGRPBIND
+        type: ns::systemgroup_systemcmdpolicy_binding
+        properties:
+          groupname: $parent.properties.groupname
+          policyname: str("superuser")
+          priority: 100          
+-
+   name: LDAPAUTH
+   type: ns::authenticationldapaction
+   properties:
+     name: str("Auth_Act_LDAP_GUI")
+     serverip: $parameters.AuthenticationSettings.LDAP-IP
+     serverport: 636
+     sectype: "SSL"
+     ldapbase: $parameters.AuthenticationSettings.BaseDN
+     ldapbinddn: $parameters.AuthenticationSettings.BindDN
+     ldapbinddnpassword: $parameters.AuthenticationSettings.BindDNPW
+     ldaploginname: "sAMAccountName"
+     groupattrname: "memberOf"
+     subattributename: "cn"
+     authentication: "ENABLED"
+     searchfilter: str("memberof=") + $parameters.AuthenticationSettings.GROUPDN
+- 
+   name: LDAPPOL
+   type: ns::authenticationpolicy
+   properties:
+     name: str("Auth_Pol_LDAP_GUI")
+     rule: str("TRUE")
+     action: "Auth_Act_LDAP_GUI"
+-
+   name: LGSCHSINGLE
+   type: ns::authenticationloginschema
+   properties:
+     name: str("logschem_OTP_GUI_single")
+     authenticationschema: str("/nsconfig/loginschema/LoginSchema/SingleAuth.xml")
+-
+   name: POLLABOTPGUI
+   type: ns::authenticationpolicylabel
+   properties:
+     labelname: str("Auth_Lab_OTP_GUI")
+     loginschema: str("logschem_OTP_GUI_single")
+     type: str("RBA_REQ")
+-
+   name: BINDLABOTPGUI
+   type: ns::authenticationpolicylabel_authenticationpolicy_binding
+   properties: 
+     labelname: str("Auth_Lab_OTP_GUI")
+     policyname: $parameters.otp.otp_policy
+     priority: 100
+     gotoPriorityExpression: "END"
+-  
+   name: BINDGLOB
+   type: ns::systemglobal_authenticationpolicy_binding
+   properties:
+     policyname: str("Auth_Pol_LDAP_GUI")
+     priority: 100
+     gotopriorityexpression: str("NEXT")
+     nextfactor: str("Auth_Lab_OTP_GUI")
+  
