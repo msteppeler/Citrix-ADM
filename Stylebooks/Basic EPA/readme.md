@@ -1,7 +1,7 @@
 <b>About this Stylebook</b>
 
 This Stylebook contains everything you need to configure basic EPA checks on Citrix ADC.
-There seems to be an issue in processing, so you can (for now) configure either mac-address check <b>OR</b> device certificate verification.
+
 
 <br>
 <b>Prerequisites</b>
